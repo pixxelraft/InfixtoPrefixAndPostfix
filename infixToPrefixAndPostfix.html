@@ -1,0 +1,313 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <title>Infix ⇆ Prefix & Postfix Converter V-2.1 - PixxelRaft Solutions</title>
+  <script src="https://cdn.tailwindcss.com"></script>
+  <style>
+    .highlight {
+      background-color: rgba(59, 130, 246, 0.4) !important;
+      transition: background-color 0.3s ease;
+    }
+    [aria-live] {
+      min-height: 2em;
+      display: block;
+    }
+  </style>
+</head>
+<body class="bg-gray-900 text-white min-h-screen p-8">
+  <div class="max-w-5xl mx-auto bg-gray-800 rounded-2xl shadow-lg p-6">
+    <header class="mb-8 text-center">
+      <h1 class="text-3xl font-bold mb-2">Infix ⇆ Prefix & Postfix Converter V-2.1</h1>
+      <h2 class="text-xl font-semibold text-blue-400 mb-4">PixxelRaft Solutions</h2>
+      <h2 class="text-xl font-semibold text-blue-400 mb-4">Founder - Umair </h2>
+    </header>
+
+    <!-- Input Section -->
+    <form id="convertForm" autocomplete="off" class="mb-4 flex flex-col md:flex-row gap-4 items-center" aria-label="Expression Input">
+      <div class="flex-1">
+        <label for="infix" class="block mb-1 font-medium sr-only">Enter infix expression</label>
+        <input
+          id="infix"
+          type="text"
+          placeholder="e.g. (A+B)*C^2-D/E"
+          class="w-full px-4 py-2 rounded-lg text-gray-900 focus:outline-none focus:ring-2 focus:ring-blue-500"
+          aria-required="true"
+        />
+      </div>
+      <button type="submit"
+        class="bg-blue-600 hover:bg-blue-700 px-6 py-2 rounded-lg font-semibold transition"
+        aria-label="Convert Expression">
+        Convert
+      </button>
+      <button type="button" id="resetBtn"
+        class="bg-gray-600 hover:bg-gray-700 px-6 py-2 rounded-lg font-semibold transition"
+        aria-label="Reset">
+        Reset
+      </button>
+    </form>
+    <div class="mb-2">
+      <span class="font-semibold">Examples:</span>
+      <button type="button" class="exampleBtn text-blue-300 underline mr-2" data-value="A+B*C">A+B*C</button>
+      <button type="button" class="exampleBtn text-blue-300 underline mr-2" data-value="(A+B)*C^2-D/E">(A+B)*C^2-D/E</button>
+      <button type="button" class="exampleBtn text-blue-300 underline mr-2" data-value="12+34*(A-b)/7.5">12+34*(A-b)/7.5</button>
+    </div>
+
+    <div id="errorMsg" class="text-red-400 my-2 font-semibold" aria-live="assertive"></div>
+
+    <!-- Results -->
+    <div class="mb-6 grid md:grid-cols-2 gap-4">
+      <div id="prefixResult" class="bg-gray-700 p-4 rounded-lg" aria-live="polite"></div>
+      <div id="postfixResult" class="bg-gray-700 p-4 rounded-lg" aria-live="polite"></div>
+    </div>
+
+    <!-- Conversion Steps Tables -->
+    <div class="grid md:grid-cols-2 gap-6">
+      <section>
+        <h3 class="text-xl font-semibold mb-2">Prefix Conversion Steps</h3>
+        <div class="overflow-x-auto">
+          <table class="min-w-full bg-gray-700 rounded-lg overflow-hidden">
+            <thead class="bg-gray-600">
+              <tr>
+                <th class="px-4 py-2 text-left">Step</th>
+                <th class="px-4 py-2 text-left">Symbol</th>
+                <th class="px-4 py-2 text-left">Stack</th>
+                <th class="px-4 py-2 text-left">Expression</th>
+              </tr>
+            </thead>
+            <tbody id="prefixTable"></tbody>
+          </table>
+        </div>
+      </section>
+      <section>
+        <h3 class="text-xl font-semibold mb-2">Postfix Conversion Steps</h3>
+        <div class="overflow-x-auto">
+          <table class="min-w-full bg-gray-700 rounded-lg overflow-hidden">
+            <thead class="bg-gray-600">
+              <tr>
+                <th class="px-4 py-2 text-left">Step</th>
+                <th class="px-4 py-2 text-left">Symbol</th>
+                <th class="px-4 py-2 text-left">Stack</th>
+                <th class="px-4 py-2 text-left">Expression</th>
+              </tr>
+            </thead>
+            <tbody id="postfixTable"></tbody>
+          </table>
+        </div>
+      </section>
+    </div>
+  </div>
+
+<script>
+// Operator precedence & associativity
+const precedence = {
+  '^': 4,
+  '*': 3, '/': 3, '%': 3,
+  '+': 2, '-': 2
+};
+const rightAssociative = { '^': true };
+
+// Utility: Check if operator
+function isOperator(c) { return precedence.hasOwnProperty(c); }
+// Utility: Check if operand
+function isOperand(c) { return /^[A-Za-z0-9.]+$/.test(c); }
+
+// Tokenize expression (multi-char, decimals, operators, parentheses)
+function tokenize(expr) {
+  return expr.match(/[A-Za-z][A-Za-z0-9_.]*|\d*\.?\d+|[+\-*/%^()]/g) || [];
+}
+
+// Validation: parentheses and generic errors
+function isValidInfix(expr) {
+  let stack = [];
+  let lastWasOperator = true, lastWasOperand = false;
+  let tokens = tokenize(expr);
+  for (let token of tokens) {
+    if (token === '(') stack.push(token), lastWasOperator = true;
+    else if (token === ')') {
+      if (!stack.length) return { valid: false, reason: "Unmatched closing parenthesis." };
+      stack.pop();
+      lastWasOperator = false;
+    } else if (isOperator(token)) {
+      if (lastWasOperator) return { valid: false, reason: "Misplaced operator: " + token };
+      lastWasOperator = true; lastWasOperand = false;
+    } else if (isOperand(token)) {
+      lastWasOperator = false; lastWasOperand = true;
+    } else {
+      return { valid: false, reason: "Unknown symbol: " + token };
+    }
+  }
+  if (stack.length) return { valid: false, reason: "Unmatched opening parenthesis." };
+  if (lastWasOperator) return { valid: false, reason: "Expression ends with an operator." };
+  if (!tokens.length) return { valid: false, reason: "Empty or invalid expression." };
+  return { valid: true };
+}
+
+// POSTFIX Algorithm (with step tracking)
+function infixToPostfixSteps(infix) {
+  let stack = [], output = [], steps = [];
+  let tokens = tokenize(infix);
+  let stepCount = 1;
+
+  for (let token of tokens) {
+    if (isOperand(token)) {
+      output.push(token);
+    } else if (token === '(') {
+      stack.push(token);
+    } else if (token === ')') {
+      while (stack.length && stack[stack.length - 1] !== '(') {
+        output.push(stack.pop());
+      }
+      stack.pop(); // Remove '('
+    } else if (isOperator(token)) {
+      while (
+        stack.length &&
+        isOperator(stack[stack.length - 1]) &&
+        (
+          (!rightAssociative[token] && precedence[token] <= precedence[stack[stack.length - 1]]) ||
+          (rightAssociative[token] && precedence[token] < precedence[stack[stack.length - 1]])
+        )
+      ) {
+        output.push(stack.pop());
+      }
+      stack.push(token);
+    }
+    steps.push({ step: stepCount++, symbol: token, stack: stack.join(' '), expression: output.join(' ') });
+  }
+  while (stack.length) {
+    output.push(stack.pop());
+    steps.push({ step: stepCount++, symbol: '', stack: stack.join(' '), expression: output.join(' ') });
+  }
+  return { result: output.join(' '), steps };
+}
+
+// PREFIX Algorithm (with step tracking)
+function infixToPrefixSteps(infix) {
+  let stack = [], output = [], steps = [];
+  let tokens = tokenize(infix).reverse();
+  tokens = tokens.map(t => t === '(' ? ')' : t === ')' ? '(' : t);
+  let stepCount = 1;
+
+  for (let token of tokens) {
+    if (isOperand(token)) {
+      output.push(token);
+    } else if (token === '(') {
+      stack.push(token);
+    } else if (token === ')') {
+      while (stack.length && stack[stack.length - 1] !== '(') {
+        output.push(stack.pop());
+      }
+      stack.pop(); // Remove '('
+    } else if (isOperator(token)) {
+      while (
+        stack.length &&
+        isOperator(stack[stack.length - 1]) &&
+        (
+          (!rightAssociative[token] && precedence[token] < precedence[stack[stack.length - 1]]) ||
+          (rightAssociative[token] && precedence[token] <= precedence[stack[stack.length - 1]])
+        )
+      ) {
+        output.push(stack.pop());
+      }
+      stack.push(token);
+    }
+    steps.push({ step: stepCount++, symbol: token, stack: stack.join(' '), expression: output.join(' ') });
+  }
+  while (stack.length) {
+    output.push(stack.pop());
+    steps.push({ step: stepCount++, symbol: '', stack: stack.join(' '), expression: output.join(' ') });
+  }
+  output.reverse();
+  return { result: output.join(' '), steps };
+}
+
+// UI Functions
+function fillTable(tableId, steps) {
+  let tbody = document.getElementById(tableId);
+  tbody.innerHTML = '';
+  steps.forEach(s => {
+    let row = document.createElement('tr');
+    row.innerHTML = `
+      <td class="px-4 py-2">${s.step}</td>
+      <td class="px-4 py-2">${s.symbol}</td>
+      <td class="px-4 py-2">${s.stack}</td>
+      <td class="px-4 py-2">${s.expression}</td>
+    `;
+    tbody.appendChild(row);
+  });
+}
+
+function animateSteps(tableId, speed = 500) {
+  let rows = document.getElementById(tableId).querySelectorAll('tr');
+  let i = 0;
+  function highlightNext() {
+    if (i > 0) rows[i - 1].classList.remove('highlight');
+    if (i < rows.length) {
+      rows[i].classList.add('highlight');
+      i++;
+      setTimeout(highlightNext, speed);
+    }
+  }
+  highlightNext();
+}
+
+// Event Listeners & UX Enhancements
+document.getElementById('convertForm').addEventListener('submit', function(e) {
+  e.preventDefault();
+  runConversion();
+});
+// Enter key support is covered by form submit
+
+document.getElementById('resetBtn').addEventListener('click', function() {
+  document.getElementById('infix').value = '';
+  document.getElementById('errorMsg').textContent = '';
+  document.getElementById('prefixResult').textContent = '';
+  document.getElementById('postfixResult').textContent = '';
+  document.getElementById('prefixTable').innerHTML = '';
+  document.getElementById('postfixTable').innerHTML = '';
+});
+
+// Example buttons
+document.querySelectorAll('.exampleBtn').forEach(btn => {
+  btn.addEventListener('click', function() {
+    document.getElementById('infix').value = btn.getAttribute('data-value');
+    runConversion();
+  });
+});
+
+function runConversion() {
+  let expr = document.getElementById('infix').value.trim();
+  let errDiv = document.getElementById('errorMsg');
+  let prefixResult = document.getElementById('prefixResult');
+  let postfixResult = document.getElementById('postfixResult');
+  let prefixTable = document.getElementById('prefixTable');
+  let postfixTable = document.getElementById('postfixTable');
+
+  prefixResult.textContent = '';
+  postfixResult.textContent = '';
+  prefixTable.innerHTML = '';
+  postfixTable.innerHTML = '';
+  errDiv.textContent = '';
+
+  let validation = isValidInfix(expr);
+  if (!validation.valid) {
+    errDiv.textContent = validation.reason;
+    return;
+  }
+
+  let postfixData = infixToPostfixSteps(expr);
+  let prefixData = infixToPrefixSteps(expr);
+
+  prefixResult.innerHTML = `<p><strong>Prefix:</strong> <span class="bg-blue-900 rounded px-1">${prefixData.result}</span></p>`;
+  postfixResult.innerHTML = `<p><strong>Postfix:</strong> <span class="bg-blue-900 rounded px-1">${postfixData.result}</span></p>`;
+
+  fillTable('postfixTable', postfixData.steps);
+  fillTable('prefixTable', prefixData.steps);
+
+  animateSteps('prefixTable', 400);
+  animateSteps('postfixTable', 400);
+}
+
+</script>
+</body>
+</html>
